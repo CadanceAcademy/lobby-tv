@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cadance Lobby TV</title>
+<style>
+  :root { --bg: #f7f6f9; --ink: #3b2466; }
+  html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; cursor: none; }
+  .stage { position: fixed; inset: 0; display: grid; place-items: center; }
+  .slide { position: absolute; inset: 0; opacity: 0; transition: opacity .8s ease; display: grid; place-items: center; }
+  .slide.on { opacity: 1; }
+  .slide img { width: 100vw; height: 100vh; object-fit: contain; background: var(--bg); }
+  .slide.video { background: #000; }
+  #yt { width: 100vw; height: 100vh; }
+  .hint { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); font: 600 18px Montserrat, system-ui, sans-serif;
+          color: var(--ink); background: rgba(255,255,255,.9); padding: 10px 18px; border-radius: 999px; transition: opacity .6s; }
+</style>
+</head>
+<body>
+<div class="stage" id="stage"></div>
+<div class="hint" id="hint">Click once to turn on video sound. Press F for full screen.</div>
+
+<script>
+// Playlist for the lobby TV. Images show for SLIDE_SECONDS; videos play to the end, then move on.
+// To change it: edit this list, then reload the page.
+const SLIDE_SECONDS = 10;
+const PLAYLIST = [
+  { img: "out-newsletter/01-october.png" },
+  { youtube: "WWDnmGwEYEM" },               // Open House 2026
+  { img: "out-newsletter/02-dress-up.png" },
+  { img: "out-newsletter/03-halloween.png" },
+  { img: "out-newsletter/04-nutcracker.png" },
+  { img: "out-newsletter/05-partners.png" },
+  { img: "out-newsletter/06-community-seats.png" },
+  { img: "out-newsletter/07-introduce.png" },
+  { img: "out-newsletter/08-mice.png" },
+  { youtube: "Y-gh3y78yi8" },               // Open House footage
+  { img: "out-newsletter/09-bring-a-friend.png" },
+  { img: "out-newsletter/10-registration.png" },
+  { youtube: "tFchn0shoeI" },               // Start of classes
+  { img: "out-newsletter/11-spotlight.png" },
+  { img: "out-newsletter/12-greatest-show.png" },
+];
+
+const stage = document.getElementById("stage");
+let i = -1, timer = null, player = null, ytReady = false, soundOn = false, current = null;
+
+// Preload images so every slide fades in cleanly.
+PLAYLIST.forEach(p => { if (p.img) new Image().src = p.img; });
+
+function show(el) {
+  stage.appendChild(el);
+  requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add("on")));
+  const old = current; current = el;
+  if (old) { old.classList.remove("on"); setTimeout(() => old.remove(), 900); }
+}
+
+function next() {
+  clearTimeout(timer);
+  if (player) { try { player.destroy(); } catch (e) {} player = null; }
+  // After each full loop, reload so the TV picks up any new slides that were published.
+  if (i === PLAYLIST.length - 1 && navigator.onLine) { location.reload(); return; }
+  i = (i + 1) % PLAYLIST.length;
+  const item = PLAYLIST[i];
+  if (item.youtube) {
+    if (!ytReady) return next();            // YouTube not loaded (offline?): skip videos
+    playVideo(item.youtube);
+  } else {
+    const el = document.createElement("div");
+    el.className = "slide";
+    el.innerHTML = `<img src="${item.img}" alt="">`;
+    show(el);
+    timer = setTimeout(next, SLIDE_SECONDS * 1000);
+  }
+}
+
+function playVideo(id) {
+  const el = document.createElement("div");
+  el.className = "slide video";
+  el.innerHTML = '<div id="yt"></div>';
+  show(el);
+  player = new YT.Player("yt", {
+    videoId: id,
+    playerVars: { autoplay: 1, controls: 0, rel: 0, modestbranding: 1, playsinline: 1, iv_load_policy: 3 },
+    events: {
+      onReady: e => { if (!soundOn) e.target.mute(); e.target.playVideo(); },
+      onStateChange: e => { if (e.data === YT.PlayerState.ENDED) next(); },
+      onError: () => next(),               // video removed or not embeddable: move on
+    },
+  });
+  // YouTube Shorts loop forever and never report "ended", so watch the position:
+  // move on when it reaches the last half second, or when it jumps back to the start after 80%.
+  let last = 0, started = Date.now();
+  const watch = setInterval(() => {
+    if (!player || player !== mine) return clearInterval(watch);
+    if (typeof player.getCurrentTime !== "function") {
+      if (Date.now() - started > 30000) { clearInterval(watch); next(); }  // never loaded
+      return;
+    }
+    const t = player.getCurrentTime(), d = player.getDuration();
+    if (d > 0 && (t >= d - 0.5 || (last > d * 0.8 && t < last - 2))) { clearInterval(watch); next(); return; }
+    if (d === 0 && Date.now() - started > 30000) { clearInterval(watch); next(); return; }
+    last = t;
+  }, 250);
+  const mine = player;
+}
+
+window.onYouTubeIframeAPIReady = () => { ytReady = true; };
+const s = document.createElement("script");
+s.src = "https://www.youtube.com/iframe_api";
+document.head.appendChild(s);
+
+// Browsers only allow video sound after a click. One click turns sound on for the rest of the session.
+document.addEventListener("click", () => {
+  soundOn = true;
+  if (player && player.unMute) player.unMute();
+  document.getElementById("hint").style.opacity = 0;
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "f" || e.key === "F") document.documentElement.requestFullscreen?.();
+  if (e.key === "ArrowRight") next();
+});
+setTimeout(() => document.getElementById("hint").style.opacity = 0, 15000);
+
+// Give the YouTube API a moment to load, then start.
+setTimeout(next, 1500);
+</script>
+</body>
+</html>
